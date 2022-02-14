@@ -1,5 +1,13 @@
 package mapreduce
 
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"sort"
+)
+
 // doReduce does the job of a reduce worker: it reads the intermediate
 // key/value pairs (produced by the map phase) for this task, sorts the
 // intermediate key/value pairs by key, calls the user-defined reduce function
@@ -33,4 +41,43 @@ func doReduce(
 	// file.Close()
 	//
 	// Use checkError to handle errors.
+	kvs := make(map[string][]string)
+	for m := 0; m < nMap; m++ {
+		fileName := reduceName(jobName, m, reduceTaskNumber)
+		dat, err := ioutil.ReadFile(fileName)
+		if err != nil {
+			fmt.Println("Error opening file", fileName)
+		} else {
+			var items []KeyValue
+			json.Unmarshal(dat, &items)
+			for _, item := range items {
+				k := item.Key
+				v := item.Value
+				vals, ok := kvs[k]
+				if !ok {
+					vals = []string{}
+					kvs[k] = vals
+				}
+				kvs[k] = append(kvs[k], v)
+			}
+		}
+	}
+	mergeFileName := mergeName(jobName, reduceTaskNumber)
+	file, err := os.Create(mergeFileName)
+	if err != nil {
+		fmt.Println("Cannot open file", mergeFileName)
+	}
+	var keys []string
+	for k := range kvs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	enc := json.NewEncoder(file)
+	for _, key := range keys {
+		enc.Encode(KeyValue{key, reduceF(key, kvs[key])})
+	}
+	file.Close()
+	debug("reduceF wrote %s\n", mergeFileName)
+
 }
