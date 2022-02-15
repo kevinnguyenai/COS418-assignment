@@ -126,6 +126,7 @@ func port(suffix string) string {
 	s += "mr"
 	s += strconv.Itoa(os.Getpid()) + "-"
 	s += suffix
+	debug("SocketMaster: %s\n", s)
 	return s
 }
 

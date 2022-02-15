@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
-	"mapreduce"
 	"os"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"../mapreduce"
 )
 
 func GetWords(text string) []string {

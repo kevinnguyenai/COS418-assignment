@@ -78,6 +78,7 @@ func Sequential(jobName string, files []string, nreduce int,
 // master over RPC.
 func Distributed(jobName string, files []string, nreduce int, master string) (mr *Master) {
 	mr = newMaster(master)
+	debug("Master: starting %s\n", master)
 	mr.startRPCServer()
 	go mr.run(jobName, files, nreduce, mr.schedule, func() {
 		mr.stats = mr.killWorkers()
