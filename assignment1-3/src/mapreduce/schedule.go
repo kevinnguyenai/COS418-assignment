@@ -4,8 +4,15 @@ import (
 	"math/rand"
 	"sync"
 
-	"github.com/willf/bitset"
+	"github.com/bits-and-blooms/bitset"
 )
+
+/*
+The approach of scheduling: No 2 phases run in parallel. During each phase a bitmap of workers is maintained in which
+a set bit indicates that the worker is doing a task and a clear bit indicates worker is idle. Each phase has a
+`started` bitset to track which tasks have been given to worker, if a bit is unset it either was not given or the
+worker to which it was given failed so it must be re-assigned to other worker.
+*/
 
 // schedule starts and waits for all tasks in the given phase (Map or Reduce).
 func (mr *Master) schedule(phase jobPhase) {
@@ -19,10 +26,12 @@ func (mr *Master) schedule(phase jobPhase) {
 	case mapPhase:
 		ntasks = len(mr.files)
 		nios = mr.nReduce
+		//go startMap(mr, workers, ntasks, nios, done)
 		go startPhase(phase, mr, workers, ntasks, nios, done)
 	case reducePhase:
 		ntasks = mr.nReduce
 		nios = len(mr.files)
+		//go startReduce(mr, workers, ntasks, nios, done)
 		go startPhase(phase, mr, workers, ntasks, nios, done)
 	}
 
@@ -57,6 +66,7 @@ func (w *Workers) add(worker string) {
 	newBsy := bitset.New(uint(len(w.names)))
 	w.busyness.Copy(newBsy)
 	w.busyness = newBsy
+
 }
 
 func (w *Workers) free(worker string) {
@@ -117,7 +127,6 @@ func assignToWorker(mr *Master, workers *Workers, started *bitset.BitSet,
 	  Checks if there is any task to be assigned to assigned to a worker and if any worker is idle, assign
 	  tasks to that worker
 	*/
-
 	// Find next clear bit from position 1, the bit at position 0 is unused
 	// since for every task number a +ve or -ve value is needed depending on success
 	// or failure of task and -0 does not make sense
@@ -149,11 +158,10 @@ func assignToWorker(mr *Master, workers *Workers, started *bitset.BitSet,
 			if ok {
 				statusChan <- TaskResult{int(taskNumber), w}
 			} else {
-				statusChan <- TaskResult{int(taskNumber), w}
+				statusChan <- TaskResult{int(-taskNumber), w}
 			}
 		}(w, statusChan, n)
 	}
-
 }
 
 func startPhase(phase jobPhase, mr *Master, workers *Workers,
@@ -164,7 +172,6 @@ func startPhase(phase jobPhase, mr *Master, workers *Workers,
 	statusChan := make(chan TaskResult)
 	var mutex = &sync.Mutex{}
 	defer close(statusChan)
-
 	// Assign Task to Worker
 	assignToWorker(mr, workers, started, mutex, phase, ntasks, nouts, statusChan)
 
@@ -174,6 +181,7 @@ Loop:
 		case w := <-mr.registerChannel:
 			workers.add(w)
 			assignToWorker(mr, workers, started, mutex, phase, ntasks, nouts, statusChan)
+
 		case tr := <-statusChan:
 			if tr.status > 0 {
 				debug("%s Task %d done by worker %s\n", phase, tr.status, tr.workerName)

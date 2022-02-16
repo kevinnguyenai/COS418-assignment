@@ -24,7 +24,7 @@ const (
 
 // Split in words
 func MapFunc(file string, value string) (res []KeyValue) {
-	debug("Map %v\n", value)
+	//debug("Map %v\n", value)
 	words := strings.Fields(value)
 	for _, w := range words {
 		kv := KeyValue{w, ""}
@@ -126,7 +126,6 @@ func port(suffix string) string {
 	s += "mr"
 	s += strconv.Itoa(os.Getpid()) + "-"
 	s += suffix
-	debug("SocketMaster: %s\n", s)
 	return s
 }
 
