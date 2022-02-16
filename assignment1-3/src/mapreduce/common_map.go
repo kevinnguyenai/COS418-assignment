@@ -66,9 +66,9 @@ func doMap(
 			lock.RUnlock()
 			if !ok {
 				r = int(ihash(k)) % nReduce
-				lock.RLock()
+				lock.Lock()
 				hashes[k] = r
-				lock.RUnlock()
+				lock.Unlock()
 			}
 			partitions[r] = append(partitions[r], kvs[i])
 		}
