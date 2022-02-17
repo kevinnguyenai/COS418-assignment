@@ -108,6 +108,8 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	sim.nextSnapshotId++
 	sim.logger.RecordEvent(sim.servers[serverId], StartSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
+	sim.servers[serverId].StartSnapshot(snapshotId)
+
 }
 
 // Callback for servers to notify the simulator that the snapshot process has

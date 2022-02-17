@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"mapreduce"
+	"assignment1-3/src/mapreduce"
 )
 
 func GetWords(text string) []string {

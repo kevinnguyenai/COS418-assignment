@@ -14,6 +14,7 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
+	snapState []*SnapshotState
 }
 
 // A unidirectional communication channel between two servers
@@ -31,6 +32,7 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		sim,
 		make(map[string]*Link),
 		make(map[string]*Link),
+		[]*SnapshotState{},
 	}
 }
 
@@ -91,4 +93,10 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 // This should be called only once per server.
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
+	newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
+	newSnapState.id = snapshotId
+	newSnapState.tokens[server.Id] = server.Tokens
+	newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
+	server.snapState = append(server.snapState, &newSnapState)
+	log.Fatalf("Server %v have SnapState %d\n", server.Id, server.snapState[len(server.snapState)-1].id)
 }
