@@ -110,12 +110,6 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	// TODO: IMPLEMENT ME
 	sim.servers[serverId].StartSnapshot(snapshotId)
 	sim.NotifySnapshotComplete(serverId, snapshotId)
-	/*
-		if sim.servers[serverId].Tokens > 0 {
-			sim.servers[serverId].Tokens--
-			sim.servers[serverId].SendToNeighbors(TokenMessage{1})
-		}
-	*/
 }
 
 // Callback for servers to notify the simulator that the snapshot process has
@@ -132,9 +126,10 @@ func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
 	snap := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
 	// TODO: IMPLEMENT ME
 	for _, serv := range sim.servers {
-		if serv.snapState.id == snapshotId {
-			snap.messages = append(snap.messages, serv.snapState.messages...)
-			snap.tokens[serv.Id] = serv.Tokens
+		sn, ok := serv.snapLink[snapshotId]
+		if ok {
+			snap.messages = append(snap.messages, sn.messages...)
+			snap.tokens[serv.Id] += serv.Tokens
 		}
 	}
 	return &snap

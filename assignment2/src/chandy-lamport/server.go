@@ -18,7 +18,8 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
-	snapState *SnapshotState
+	snapLink  map[int]*SnapshotState
+	snapState []*SnapshotState
 	l         sync.Mutex
 }
 
@@ -37,7 +38,8 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		sim,
 		make(map[string]*Link),
 		make(map[string]*Link),
-		&SnapshotState{sim.nextSnapshotId, make(map[string]int), make([]*SnapshotMessage, 0)},
+		make(map[int]*SnapshotState),
+		[]*SnapshotState{},
 		sync.Mutex{},
 	}
 }
@@ -102,8 +104,8 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 
 	case TokenMessage:
 		log.Printf("Server %v Received TokenMessage: %v", server.Id, msg)
-		recvMsg := SnapshotMessage{src, server.Id, &msg}
-		server.snapState.messages = append(server.snapState.messages, &recvMsg)
+		//recvMsg := SnapshotMessage{src, server.Id, &msg}
+		//server.snapState.messages = append(server.snapState.messages, &recvMsg)
 		//server.Tokens += msg.numTokens
 		//server.snapState.tokens[server.Id]++
 	default:
@@ -116,11 +118,17 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
 	// append new snapshot
-	newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
-	newSnapState.id = snapshotId
-	newSnapState.tokens[server.Id] = server.Tokens
-	//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
-	server.snapState = &newSnapState
-	fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, server.snapState.id, server.snapState.tokens[server.Id])
-	//server.
+	snap, ok := server.snapLink[snapshotId]
+	if !ok {
+		newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
+		newSnapState.id = snapshotId
+		newSnapState.tokens[server.Id] = server.Tokens
+		//server.snapState = &newSnapState
+		//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
+		server.snapLink[snapshotId] = &newSnapState
+		server.snapState = append(server.snapState, &newSnapState)
+		fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, newSnapState.id, newSnapState.tokens[server.Id])
+	} else {
+		server.snapLink[snapshotId] = snap
+	}
 }
