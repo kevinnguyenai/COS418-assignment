@@ -3,6 +3,7 @@ package chandy_lamport
 import (
 	"fmt"
 	"log"
+	"sync"
 )
 
 // The main participant of the distributed snapshot protocol.
@@ -18,6 +19,7 @@ type Server struct {
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
 	snapState *SnapshotState
+	l         sync.Mutex
 }
 
 // A unidirectional communication channel between two servers
@@ -36,6 +38,7 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		make(map[string]*Link),
 		make(map[string]*Link),
 		&SnapshotState{sim.nextSnapshotId, make(map[string]int), make([]*SnapshotMessage, 0)},
+		sync.Mutex{},
 	}
 }
 
@@ -96,15 +99,13 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 		// snapshot empty channel c's
 		server.sim.logger.RecordEvent(server, StartSnapshot{server.Id, msg.snapshotId})
 		server.StartSnapshot(msg.snapshotId)
-		/*
-			if server.Tokens > 0 {
-				server.Tokens--
-				server.SendToNeighbors(TokenMessage{1})
-			}
-		*/
+
 	case TokenMessage:
 		log.Printf("Server %v Received TokenMessage: %v", server.Id, msg)
-		server.Tokens++
+		recvMsg := SnapshotMessage{src, server.Id, &msg}
+		server.snapState.messages = append(server.snapState.messages, &recvMsg)
+		//server.Tokens += msg.numTokens
+		//server.snapState.tokens[server.Id]++
 	default:
 		log.Fatalf("Error: Unknown received message %v", msg)
 	}
@@ -121,5 +122,5 @@ func (server *Server) StartSnapshot(snapshotId int) {
 	//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
 	server.snapState = &newSnapState
 	fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, server.snapState.id, server.snapState.tokens[server.Id])
-	server.sim.NotifySnapshotComplete(server.Id, snapshotId)
+	//server.
 }

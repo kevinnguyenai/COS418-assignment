@@ -109,7 +109,7 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	sim.logger.RecordEvent(sim.servers[serverId], StartSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
 	sim.servers[serverId].StartSnapshot(snapshotId)
-	sim.servers[serverId].SendToNeighbors(MarkerMessage{snapshotId: snapshotId})
+	sim.NotifySnapshotComplete(serverId, snapshotId)
 	/*
 		if sim.servers[serverId].Tokens > 0 {
 			sim.servers[serverId].Tokens--
@@ -123,7 +123,7 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.logger.RecordEvent(sim.servers[serverId], EndSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
-
+	sim.servers[serverId].SendToNeighbors(MarkerMessage{snapshotId: snapshotId})
 }
 
 // Collect and merge snapshot state from all the servers.
