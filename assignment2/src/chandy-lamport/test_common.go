@@ -131,7 +131,7 @@ func injectEvents(fileName string, sim *Simulator) []*SnapshotState {
 	}
 
 	// Keep ticking until we're sure that the last message has been delivered
-	for i := 0; i < maxDelay + 1; i++ {
+	for i := 0; i < maxDelay+1; i++ {
 		sim.Tick()
 	}
 

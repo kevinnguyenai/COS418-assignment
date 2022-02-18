@@ -1,6 +1,9 @@
 package chandy_lamport
 
-import "log"
+import (
+	"fmt"
+	"log"
+)
 
 // The main participant of the distributed snapshot protocol.
 // Servers exchange token messages and marker messages among each other.
@@ -14,7 +17,7 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
-	snapState []*SnapshotState
+	snapState *SnapshotState
 }
 
 // A unidirectional communication channel between two servers
@@ -32,7 +35,7 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		sim,
 		make(map[string]*Link),
 		make(map[string]*Link),
-		[]*SnapshotState{},
+		&SnapshotState{sim.nextSnapshotId, make(map[string]int), make([]*SnapshotMessage, 0)},
 	}
 }
 
@@ -87,16 +90,36 @@ func (server *Server) SendTokens(numTokens int, dest string) {
 // should notify the simulator by calling `sim.NotifySnapshotComplete`.
 func (server *Server) HandlePacket(src string, message interface{}) {
 	// TODO: IMPLEMENT ME
+	switch msg := message.(type) {
+	case MarkerMessage:
+		log.Println("Received MarkedMessage:", msg)
+		// snapshot empty channel c's
+		server.sim.logger.RecordEvent(server, StartSnapshot{server.Id, msg.snapshotId})
+		server.StartSnapshot(msg.snapshotId)
+		/*
+			if server.Tokens > 0 {
+				server.Tokens--
+				server.SendToNeighbors(TokenMessage{1})
+			}
+		*/
+	case TokenMessage:
+		log.Printf("Server %v Received TokenMessage: %v", server.Id, msg)
+		server.Tokens++
+	default:
+		log.Fatalf("Error: Unknown received message %v", msg)
+	}
 }
 
 // Start the chandy-lamport snapshot algorithm on this server.
 // This should be called only once per server.
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
+	// append new snapshot
 	newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
 	newSnapState.id = snapshotId
 	newSnapState.tokens[server.Id] = server.Tokens
-	newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
-	server.snapState = append(server.snapState, &newSnapState)
-	log.Fatalf("Server %v have SnapState %d\n", server.Id, server.snapState[len(server.snapState)-1].id)
+	//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
+	server.snapState = &newSnapState
+	fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, server.snapState.id, server.snapState.tokens[server.Id])
+	server.sim.NotifySnapshotComplete(server.Id, snapshotId)
 }
