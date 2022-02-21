@@ -3,6 +3,7 @@ package chandy_lamport
 import (
 	"log"
 	"math/rand"
+	"sync"
 )
 
 // Max random delay added to packet delivery
@@ -24,6 +25,7 @@ type Simulator struct {
 	servers        map[string]*Server // key = server ID
 	logger         *Logger
 	// TODO: ADD MORE FIELDS HERE
+	l sync.Mutex
 }
 
 func NewSimulator() *Simulator {
@@ -32,6 +34,7 @@ func NewSimulator() *Simulator {
 		0,
 		make(map[string]*Server),
 		NewLogger(),
+		sync.Mutex{},
 	}
 }
 
@@ -108,8 +111,12 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	sim.nextSnapshotId++
 	sim.logger.RecordEvent(sim.servers[serverId], StartSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
-	sim.servers[serverId].StartSnapshot(snapshotId)
-	sim.NotifySnapshotComplete(serverId, snapshotId)
+	_, ok := sim.servers[serverId].r[serverId]
+	if !ok {
+		sim.servers[serverId].StartSnapshot(snapshotId)
+		sim.NotifySnapshotComplete(serverId, snapshotId)
+		sim.servers[serverId].r[serverId] = true
+	}
 }
 
 // Callback for servers to notify the simulator that the snapshot process has
@@ -118,6 +125,7 @@ func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.logger.RecordEvent(sim.servers[serverId], EndSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
 	sim.servers[serverId].SendToNeighbors(MarkerMessage{snapshotId: snapshotId})
+	sim.servers[serverId].sendmarker = true
 }
 
 // Collect and merge snapshot state from all the servers.
@@ -129,7 +137,7 @@ func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
 		sn, ok := serv.snapLink[snapshotId]
 		if ok {
 			snap.messages = append(snap.messages, sn.messages...)
-			snap.tokens[serv.Id] += serv.Tokens
+			snap.tokens[serv.Id] = serv.Tokens
 		}
 	}
 	return &snap

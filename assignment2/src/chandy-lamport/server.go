@@ -18,9 +18,13 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
-	snapLink  map[int]*SnapshotState
-	snapState []*SnapshotState
-	l         sync.Mutex
+	snapLink   map[int]*SnapshotState
+	snapState  []*SnapshotState
+	l          sync.Mutex
+	sendmarker bool
+	r          map[string]bool // key = server.src to ready receive
+	bs         map[string]bool // key = server.dst to block receive
+	seqmsg     chan *SnapshotMessage
 }
 
 // A unidirectional communication channel between two servers
@@ -41,6 +45,10 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		make(map[int]*SnapshotState),
 		[]*SnapshotState{},
 		sync.Mutex{},
+		false,
+		make(map[string]bool),
+		make(map[string]bool),
+		make(chan *SnapshotMessage, 100),
 	}
 }
 
@@ -97,19 +105,47 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 	// TODO: IMPLEMENT ME
 	switch msg := message.(type) {
 	case MarkerMessage:
-		log.Println("Received MarkedMessage:", msg)
-		// snapshot empty channel c's
-		server.sim.logger.RecordEvent(server, StartSnapshot{server.Id, msg.snapshotId})
-		server.StartSnapshot(msg.snapshotId)
+		log.Printf("Server %v Received MarkedMessage from : %v\n", server.Id, src)
+		_, ok := server.r[server.Id]
+		if !ok {
+			log.Printf("Server %v seen first MarkerMessage\n", server.Id)
+			// empty state of inbound channel from src
+			for _, link := range server.inboundLinks {
+				if link.src == src {
+					link.events.Empty()
+				}
+			}
+
+			// snapshot firsttime after empty State of Channel
+			server.sim.logger.RecordEvent(server, StartSnapshot{server.Id, msg.snapshotId})
+			server.StartSnapshot(msg.snapshotId)
+			// send marker to all neighboor
+			server.SendToNeighbors(MarkerMessage{snapshotId: msg.snapshotId})
+			server.sendmarker = true
+			// ready to received msg
+			server.r[server.Id] = true
+			server.bs[src] = true
+		} else if server.r[server.Id] {
+			// already receiving marker message before
+			fmt.Printf("Server %v already have snapshot before with %v snapState\n", server.Id, len(server.snapState))
+			for i := 0; i < len(server.snapState)-1; i++ {
+				server.snapState[len(server.snapState)-1].messages = append(server.snapState[len(server.snapState)-1].messages, server.snapState[i].messages...)
+			}
+			server.r[server.Id] = false
+		}
 
 	case TokenMessage:
-		log.Printf("Server %v Received TokenMessage: %v", server.Id, msg)
-		//recvMsg := SnapshotMessage{src, server.Id, &msg}
-		//server.snapState.messages = append(server.snapState.messages, &recvMsg)
-		//server.Tokens += msg.numTokens
-		//server.snapState.tokens[server.Id]++
+		log.Printf("Server %v Received TokenMessage: %v\n", server.Id, msg)
+		res, ok := server.r[server.Id]
+		if res && ok {
+			server.snapState[len(server.snapState)-1].tokens[server.Id] += msg.numTokens
+			server.snapState[len(server.snapState)-1].messages = append(server.snapState[len(server.snapState)-1].messages, &SnapshotMessage{src, server.Id, &msg})
+			//server.Tokens += msg.numTokens
+		} else if !ok {
+			server.Tokens += msg.numTokens
+		}
 	default:
-		log.Fatalf("Error: Unknown received message %v", msg)
+		break
 	}
 }
 
@@ -118,17 +154,13 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
 	// append new snapshot
-	snap, ok := server.snapLink[snapshotId]
-	if !ok {
-		newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
-		newSnapState.id = snapshotId
-		newSnapState.tokens[server.Id] = server.Tokens
-		//server.snapState = &newSnapState
-		//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
-		server.snapLink[snapshotId] = &newSnapState
-		server.snapState = append(server.snapState, &newSnapState)
-		fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, newSnapState.id, newSnapState.tokens[server.Id])
-	} else {
-		server.snapLink[snapshotId] = snap
-	}
+	newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
+	newSnapState.id = snapshotId
+	newSnapState.tokens[server.Id] = server.Tokens
+	//server.snapState = &newSnapState
+	//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
+	server.snapLink[snapshotId] = &newSnapState
+	server.snapState = append(server.snapState, &newSnapState)
+	fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, newSnapState.id, newSnapState.tokens[server.Id])
+	fmt.Printf("Server %v have %d snapshot\n", server.Id, len(server.snapState))
 }
