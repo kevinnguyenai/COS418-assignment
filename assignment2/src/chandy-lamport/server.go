@@ -24,7 +24,7 @@ type Server struct {
 	sendmarker bool
 	r          map[string]bool // key = server.src to ready receive
 	bs         map[string]bool // key = server.dst to block receive
-	seqmsg     chan *SnapshotMessage
+	snc        chan *SendMessageEvent
 }
 
 // A unidirectional communication channel between two servers
@@ -48,7 +48,7 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		false,
 		make(map[string]bool),
 		make(map[string]bool),
-		make(chan *SnapshotMessage, 100),
+		make(chan *SendMessageEvent, 100),
 	}
 }
 
@@ -120,30 +120,35 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 			server.sim.logger.RecordEvent(server, StartSnapshot{server.Id, msg.snapshotId})
 			server.StartSnapshot(msg.snapshotId)
 			// send marker to all neighboor
-			server.SendToNeighbors(MarkerMessage{snapshotId: msg.snapshotId})
+			// server.SendToNeighbors(MarkerMessage{snapshotId: msg.snapshotId})
 			server.sendmarker = true
 			// ready to received msg
-			server.r[server.Id] = true
 			server.bs[src] = true
-		} else if server.r[server.Id] {
+		} else {
 			// already receiving marker message before
 			fmt.Printf("Server %v already have snapshot before with %v snapState\n", server.Id, len(server.snapState))
-			for i := 0; i < len(server.snapState)-1; i++ {
-				server.snapState[len(server.snapState)-1].messages = append(server.snapState[len(server.snapState)-1].messages, server.snapState[i].messages...)
+			for _, value := range server.snapState[len(server.snapState)-1].messages {
+				switch val := value.message.(type) {
+				case TokenMessage:
+					server.snapState[len(server.snapState)-1].tokens[server.Id] += val.numTokens
+				default:
+					break
+				}
 			}
 			server.r[server.Id] = false
 		}
 
 	case TokenMessage:
 		log.Printf("Server %v Received TokenMessage: %v\n", server.Id, msg)
-		res, ok := server.r[server.Id]
-		if res && ok {
-			server.snapState[len(server.snapState)-1].tokens[server.Id] += msg.numTokens
+		key, ok := server.r[server.Id]
+		if ok && key {
+			//server.snapState[len(server.snapState)-1].tokens[server.Id] = server.Tokens
 			server.snapState[len(server.snapState)-1].messages = append(server.snapState[len(server.snapState)-1].messages, &SnapshotMessage{src, server.Id, &msg})
 			//server.Tokens += msg.numTokens
 		} else if !ok {
 			server.Tokens += msg.numTokens
 		}
+
 	default:
 		break
 	}
@@ -154,13 +159,26 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
 	// append new snapshot
-	newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
-	newSnapState.id = snapshotId
-	newSnapState.tokens[server.Id] = server.Tokens
-	//server.snapState = &newSnapState
-	//newSnapState.messages = append(newSnapState.messages, &SnapshotMessage{})
-	server.snapLink[snapshotId] = &newSnapState
-	server.snapState = append(server.snapState, &newSnapState)
-	fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, newSnapState.id, newSnapState.tokens[server.Id])
-	fmt.Printf("Server %v have %d snapshot\n", server.Id, len(server.snapState))
+	_, ok := server.r[server.Id] // ok if exist map of server.Id
+	// first time Snapshot
+	if !ok {
+		newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
+		newSnapState.id = snapshotId
+		newSnapState.tokens[server.Id] = server.Tokens
+		server.snapLink[snapshotId] = &newSnapState
+		server.snapState = append(server.snapState, &newSnapState)
+		server.sim.NotifySnapshotComplete(server.Id, snapshotId)
+		server.SendToNeighbors(MarkerMessage{snapshotId})
+		server.r[server.Id] = true
+		fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, newSnapState.id, newSnapState.tokens[server.Id])
+		fmt.Printf("Server %v have %d snapshot\n", server.Id, len(server.snapState))
+	} else {
+		//_, sok := server.snapLink[snapshotId] // ok if exist SnapshotState with snapshotId in srv
+		//if sok {
+		//st.tokens[server.Id] += server.Tokens
+		//server.sim.NotifySnapshotComplete(server.Id, snapshotId)
+		//server.SendToNeighbors(MarkerMessage{snapshotId})
+		//}
+
+	}
 }

@@ -111,12 +111,7 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	sim.nextSnapshotId++
 	sim.logger.RecordEvent(sim.servers[serverId], StartSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
-	_, ok := sim.servers[serverId].r[serverId]
-	if !ok {
-		sim.servers[serverId].StartSnapshot(snapshotId)
-		sim.NotifySnapshotComplete(serverId, snapshotId)
-		sim.servers[serverId].r[serverId] = true
-	}
+	sim.servers[serverId].StartSnapshot(snapshotId)
 }
 
 // Callback for servers to notify the simulator that the snapshot process has
@@ -124,8 +119,7 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.logger.RecordEvent(sim.servers[serverId], EndSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
-	sim.servers[serverId].SendToNeighbors(MarkerMessage{snapshotId: snapshotId})
-	sim.servers[serverId].sendmarker = true
+	//sim.servers[serverId].r[serverId] = true
 }
 
 // Collect and merge snapshot state from all the servers.
