@@ -118,7 +118,6 @@ func injectEvents(fileName string, sim *Simulator) []*SnapshotState {
 			log.Fatal("Unknown event command: ", parts[0])
 		}
 	}
-
 	// Keep ticking until snapshots complete
 	for numSnapshots > 0 {
 		select {
@@ -131,7 +130,7 @@ func injectEvents(fileName string, sim *Simulator) []*SnapshotState {
 	}
 
 	// Keep ticking until we're sure that the last message has been delivered
-	for i := 0; i < maxDelay+1; i++ {
+	for i := 0; i < maxDelay + 1; i++ {
 		sim.Tick()
 	}
 

@@ -1,10 +1,12 @@
 package chandy_lamport
 
-import (
-	"fmt"
-	"log"
-	"sync"
-)
+import "log"
+
+type Snapshot struct {
+	id       int
+	tokens   int // key = server ID, value = num tokens
+	messages []*SnapshotMessage
+}
 
 // The main participant of the distributed snapshot protocol.
 // Servers exchange token messages and marker messages among each other.
@@ -18,13 +20,9 @@ type Server struct {
 	outboundLinks map[string]*Link // key = link.dest
 	inboundLinks  map[string]*Link // key = link.src
 	// TODO: ADD MORE FIELDS HERE
-	snapLink   map[int]*SnapshotState
-	snapState  []*SnapshotState
-	l          sync.Mutex
-	sendmarker bool
-	r          map[string]bool // key = server.src to ready receive
-	bs         map[string]bool // key = server.dst to block receive
-	snc        chan *SendMessageEvent
+	snapshotState *SyncMap                //map[int]*Snapshot
+	isRecording   map[int]map[string]bool // key = src
+	completed     map[int]map[string]bool // key = src
 }
 
 // A unidirectional communication channel between two servers
@@ -42,13 +40,9 @@ func NewServer(id string, tokens int, sim *Simulator) *Server {
 		sim,
 		make(map[string]*Link),
 		make(map[string]*Link),
-		make(map[int]*SnapshotState),
-		[]*SnapshotState{},
-		sync.Mutex{},
-		false,
-		make(map[string]bool),
-		make(map[string]bool),
-		make(chan *SendMessageEvent, 100),
+		NewSyncMap(),
+		make(map[int]map[string]bool),
+		make(map[int]map[string]bool),
 	}
 }
 
@@ -98,59 +92,62 @@ func (server *Server) SendTokens(numTokens int, dest string) {
 		server.sim.GetReceiveTime()})
 }
 
+type Key struct {
+	snapshotId int
+	src        string
+}
+
+type Record struct {
+	isRecording bool
+	tokens      int
+}
+
 // Callback for when a message is received on this server.
 // When the snapshot algorithm completes on this server, this function
 // should notify the simulator by calling `sim.NotifySnapshotComplete`.
 func (server *Server) HandlePacket(src string, message interface{}) {
 	// TODO: IMPLEMENT ME
-	switch msg := message.(type) {
-	case MarkerMessage:
-		log.Printf("Server %v Received MarkedMessage from : %v\n", server.Id, src)
-		_, ok := server.r[server.Id]
-		if !ok {
-			log.Printf("Server %v seen first MarkerMessage\n", server.Id)
-			// empty state of inbound channel from src
-			for _, link := range server.inboundLinks {
-				if link.src == src {
-					link.events.Empty()
+
+	switch message := message.(type) {
+	case TokenMessage:
+		server.Tokens += message.numTokens
+
+		server.snapshotState.Range(func(k, v interface{}) bool {
+			if snapshotId, isInt := k.(int); isInt {
+				if isRecording, found := server.isRecording[snapshotId][src]; found && isRecording {
+					if snapshot, ok := v.(*Snapshot); ok {
+						snapshot.messages = append(snapshot.messages, &SnapshotMessage{src, server.Id, message})
+					}
 				}
 			}
 
-			// snapshot firsttime after empty State of Channel
-			server.sim.logger.RecordEvent(server, StartSnapshot{server.Id, msg.snapshotId})
-			server.StartSnapshot(msg.snapshotId)
-			// send marker to all neighboor
-			// server.SendToNeighbors(MarkerMessage{snapshotId: msg.snapshotId})
-			server.sendmarker = true
-			// ready to received msg
-			server.bs[src] = true
-		} else {
-			// already receiving marker message before
-			fmt.Printf("Server %v already have snapshot before with %v snapState\n", server.Id, len(server.snapState))
-			for _, value := range server.snapState[len(server.snapState)-1].messages {
-				switch val := value.message.(type) {
-				case TokenMessage:
-					server.snapState[len(server.snapState)-1].tokens[server.Id] += val.numTokens
-				default:
-					break
+			return true
+		})
+
+	case MarkerMessage:
+		if _, found := server.snapshotState.LoadOrStore(message.snapshotId, &Snapshot{message.snapshotId, server.Tokens, make([]*SnapshotMessage, 0)}); !found {
+			server.SendToNeighbors(message)
+			server.completed[message.snapshotId] = make(map[string]bool)
+			server.isRecording[message.snapshotId] = make(map[string]bool)
+			for _, source := range getSortedKeys(server.inboundLinks) {
+				if src != source {
+					server.isRecording[message.snapshotId][source] = true
+				} else {
+					server.isRecording[message.snapshotId][source] = false
 				}
 			}
-			server.r[server.Id] = false
+		} else {
+			server.isRecording[message.snapshotId][src] = false
 		}
 
-	case TokenMessage:
-		log.Printf("Server %v Received TokenMessage: %v\n", server.Id, msg)
-		key, ok := server.r[server.Id]
-		if ok && key {
-			//server.snapState[len(server.snapState)-1].tokens[server.Id] = server.Tokens
-			server.snapState[len(server.snapState)-1].messages = append(server.snapState[len(server.snapState)-1].messages, &SnapshotMessage{src, server.Id, &msg})
-			//server.Tokens += msg.numTokens
-		} else if !ok {
-			server.Tokens += msg.numTokens
+		server.completed[message.snapshotId][src] = true
+
+		if len(server.completed[message.snapshotId]) == len(server.inboundLinks) {
+			server.sim.NotifySnapshotComplete(server.Id, message.snapshotId)
 		}
 
 	default:
-		break
+		log.Fatal("Error unknown message: ", message)
 	}
 }
 
@@ -158,27 +155,11 @@ func (server *Server) HandlePacket(src string, message interface{}) {
 // This should be called only once per server.
 func (server *Server) StartSnapshot(snapshotId int) {
 	// TODO: IMPLEMENT ME
-	// append new snapshot
-	_, ok := server.r[server.Id] // ok if exist map of server.Id
-	// first time Snapshot
-	if !ok {
-		newSnapState := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
-		newSnapState.id = snapshotId
-		newSnapState.tokens[server.Id] = server.Tokens
-		server.snapLink[snapshotId] = &newSnapState
-		server.snapState = append(server.snapState, &newSnapState)
-		server.sim.NotifySnapshotComplete(server.Id, snapshotId)
-		server.SendToNeighbors(MarkerMessage{snapshotId})
-		server.r[server.Id] = true
-		fmt.Printf("Server %v have SnapState id: %v with token %d\n", server.Id, newSnapState.id, newSnapState.tokens[server.Id])
-		fmt.Printf("Server %v have %d snapshot\n", server.Id, len(server.snapState))
-	} else {
-		//_, sok := server.snapLink[snapshotId] // ok if exist SnapshotState with snapshotId in srv
-		//if sok {
-		//st.tokens[server.Id] += server.Tokens
-		//server.sim.NotifySnapshotComplete(server.Id, snapshotId)
-		//server.SendToNeighbors(MarkerMessage{snapshotId})
-		//}
-
+	server.snapshotState.LoadOrStore(snapshotId, &Snapshot{snapshotId, server.Tokens, make([]*SnapshotMessage, 0)})
+	server.isRecording[snapshotId] = make(map[string]bool)
+	server.completed[snapshotId] = make(map[string]bool)
+	for _, src := range getSortedKeys(server.inboundLinks) {
+		server.isRecording[snapshotId][src] = true
 	}
+	server.SendToNeighbors(MarkerMessage{snapshotId})
 }

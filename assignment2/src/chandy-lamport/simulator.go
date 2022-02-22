@@ -2,8 +2,8 @@ package chandy_lamport
 
 import (
 	"log"
+	"fmt"
 	"math/rand"
-	"sync"
 )
 
 // Max random delay added to packet delivery
@@ -25,7 +25,7 @@ type Simulator struct {
 	servers        map[string]*Server // key = server ID
 	logger         *Logger
 	// TODO: ADD MORE FIELDS HERE
-	l sync.Mutex
+	completed	   map[int] map[string]chan bool
 }
 
 func NewSimulator() *Simulator {
@@ -34,7 +34,7 @@ func NewSimulator() *Simulator {
 		0,
 		make(map[string]*Server),
 		NewLogger(),
-		sync.Mutex{},
+		make(map[int] map[string]chan bool),
 	}
 }
 
@@ -42,7 +42,7 @@ func NewSimulator() *Simulator {
 // Note: since we only deliver one message to a given server at each time step,
 // the message may be received *after* the time step returned in this function.
 func (sim *Simulator) GetReceiveTime() int {
-	return sim.time + 1 + rand.Intn(5)
+	return sim.time + 1  + rand.Intn(5)
 }
 
 // Add a server to this simulator with the specified number of starting tokens
@@ -111,7 +111,16 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 	sim.nextSnapshotId++
 	sim.logger.RecordEvent(sim.servers[serverId], StartSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
-	sim.servers[serverId].StartSnapshot(snapshotId)
+	sim.completed[snapshotId] = make(map[string]chan bool)
+	for serverId,_ := range sim.servers {
+		sim.completed[snapshotId][serverId] = make(chan bool)
+	} 
+
+	server, ok := sim.servers[serverId]
+	if !ok {
+		log.Fatalf("Server %v does not exist\n", serverId)
+	}
+	server.StartSnapshot(snapshotId)
 }
 
 // Callback for servers to notify the simulator that the snapshot process has
@@ -119,20 +128,50 @@ func (sim *Simulator) StartSnapshot(serverId string) {
 func (sim *Simulator) NotifySnapshotComplete(serverId string, snapshotId int) {
 	sim.logger.RecordEvent(sim.servers[serverId], EndSnapshot{serverId, snapshotId})
 	// TODO: IMPLEMENT ME
-	//sim.servers[serverId].r[serverId] = true
+	_, ok := sim.servers[serverId]
+	if !ok {
+		log.Fatalf("Server %v does not exist\n", serverId)
+		return
+	}
+	sim.completed[snapshotId][serverId] <- true
 }
 
 // Collect and merge snapshot state from all the servers.
 // This function blocks until the snapshot process has completed on all servers.
 func (sim *Simulator) CollectSnapshot(snapshotId int) *SnapshotState {
-	snap := SnapshotState{snapshotId, make(map[string]int), make([]*SnapshotMessage, 0)}
 	// TODO: IMPLEMENT ME
-	for _, serv := range sim.servers {
-		sn, ok := serv.snapLink[snapshotId]
-		if ok {
-			snap.messages = append(snap.messages, sn.messages...)
-			snap.tokens[serv.Id] = serv.Tokens
-		}
+	done := make(chan bool, len(sim.completed[snapshotId]))
+	for _, v := range sim.completed[snapshotId] {
+		go func(done chan bool, v chan bool){
+			<- v 
+			done <- true
+		} (done, v)
 	}
+	for range sim.completed[snapshotId]{
+		<- done
+	}
+	
+	tokens := make(map[string]int)
+	messages := make([]*SnapshotMessage,0)
+	for _, serverId := range getSortedKeys(sim.servers){
+		server := sim.servers[serverId]
+		server.snapshotState.Range(func(k, v interface{})bool{
+			if key, isInt := k.(int); isInt && key == snapshotId{
+				if snapshot, ok := v.(*Snapshot); ok {
+					tokens[serverId] = snapshot.tokens
+					for _, msg := range snapshot.messages{
+						messages = append(messages, msg)
+					}
+				}
+			}
+			return true
+		})
+	}
+	snap := SnapshotState{snapshotId, tokens, messages}
+
 	return &snap
+}
+
+func printSlice(s []int) {
+	fmt.Printf("len=%d cap=%d %v\n", len(s), cap(s), s)
 }
